@@ -1,1 +1,3 @@
-﻿Console.WriteLine( "test" )
+﻿using SymboMath;
+
+Console.WriteLine( "test" );
