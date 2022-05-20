@@ -29,10 +29,7 @@ public abstract class Node
     }
     private static Queue<string> InfixToPostfix( string Infix )
     {
-        //turn - and / into functions instead of operators
-        Infix = Regex.Replace( Infix, @"\- (.*?) ", a => a.Result( "+ ( - $1 ) " ) );
-        Infix = Regex.Replace( Infix, @"\/ (.*?) ", a => a.Result( "+ ( - $1 ) " ) );
-
+        Infix = FormatInfix( Infix );
 
         Queue<string> Output = new();
         Stack<string> Ops = new();
@@ -45,10 +42,10 @@ public abstract class Node
             if ( int.TryParse( InfN, out _ ) || float.TryParse( InfN, out _ ) )
                 Output.Enqueue( InfN );
             //function
-            else if ( InfN is "-" or "/" )
+            else if ( IsUnaryOperator( InfN, out _ ) )
                 Ops.Push( InfN );
             //operator
-            else if ( InfN is "+" or "*" or "^" )
+            else if ( IsPlenaryOperator( InfN, out _ ) )
             {
                 while ( 
                     Ops.Any() && Ops.Peek() != "(" &&
@@ -75,18 +72,42 @@ public abstract class Node
                     Output.Enqueue( Ops.Pop() );
                 }
                 Ops.Pop();
+                if ( IsUnaryOperator( Ops.Peek(), out _ ) )
             }
         }
+        while ( Ops.Any() )
+            Output.Enqueue( Ops.Pop() );
+        return Output;
     }
-    public Node Parse( string Expression )
+    public Node Parse( string[] Postfix )
     {
-        string[] ExpArr = Expression.Split( ' ' );
-        Node[] ExpNodeArr = new Node[ ExpArr.Length ];
-        for ( int n = 0; n < ExpArr.Length; ++n )
+        Node[] ExpNodeArr = new Node[ Postfix.Length ];
+        for ( int n = Postfix.Length; n >= 0; --n )
         {
-            if ( int.TryParse( ExpArr[ n ], out int IntNode ) )
+            if ( int.TryParse( Postfix[ n ], out int IntNode ) )
             {
                 ExpNodeArr[ n ] = new Node<int>( IntNode );
+                continue;
+            }
+            if ( float.TryParse( Postfix[ n ], out float FloatNode ) )
+            {
+                ExpNodeArr[ n ] = new Node<float>( FloatNode );
+                continue;
+            }
+            if ( IsUnaryOperator( Postfix[ n ], out UnaryOperator uo ) )
+            {
+                ExpNodeArr[ n ] = new Node<UnaryOperator>( uo, Parse(  ) );
+                continue;
+            }
+            if ( IsPlenaryOperator( Postfix[ n ], out PlenaryOperator po ) )
+            {
+                int Index = n - 1;
+                while ( Postfix[ n ] != Postfix[ Index ] )
+                {
+                    --Index;
+                }
+                ++Index;
+                ExpNodeArr[ n ] = new Node<PlenaryOperator>( po, Parse( Postfix[ Index..n ] ) );
                 continue;
             }
         }
