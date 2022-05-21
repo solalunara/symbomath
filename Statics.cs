@@ -79,7 +79,7 @@ public static class Statics
     private static string ExpOpsToFuncs( string In )
     {
         Match m;
-        while ( ( m = Regex.Match( In, @"([^ ]*?) \^ ([^ ]*?)" ) ).Success )
+        while ( ( m = Regex.Match( In, @"([^ ]+) \^ ([^ ]+)" ) ).Success )
         {
             string Base = m.Result( "$1" );
             string Exponent = m.Result( "$2" );
@@ -129,12 +129,11 @@ public static class Statics
                 Exponent = In[ ( m.Index + m.Result( "$1" ).Length + 1 )..Index ];
             }
             //if base is not e, "ln base * " needs to go in the exp. Otherwise nothing needs to be added
-            Base = Base != "e" ? "ln " + Base : "";
+            Base = Base != "e" ? "ln " + Base + " * " : "";
             //turn x ^ y into exp( ln x * y )
-            In = In[ ..MatchIndex ] + "exp ( " + Base + Exponent + ") " + In[ ( MatchIndex + MatchLength ).. ];
+            In = In[ ..MatchIndex ] + "exp ( " + Base + Exponent + " )" + In[ ( MatchIndex + MatchLength ).. ];
         }
-        //now that we're done change all "/!"s to "/"s
-        return Regex.Replace( In, @"\/\!", "/" );
+        return In;
     }
     public static string FormatExpression( string Infix )
     {
@@ -144,10 +143,6 @@ public static class Statics
     {
         return Postfix.Length - 1 - Postfix.ToList().LastIndexOf( Postfix.Last(), Postfix.Length - 2 );
     }
-    public static bool IsLeftAssoc( string Op )
-    {
-        return Op != "^";
-    }
     public static int Precedence( string Op )
     {
         return Precedence( GetOperator( Op ) );
@@ -156,9 +151,22 @@ public static class Statics
     {
         return Op switch
         {
-            Operator.ADD => 0,
-            Operator.MULT => 1,
-            _ => throw new InvalidOperationException( $"{Op} not a plenary operator" )
+            Operator.ADD => 1,
+            Operator.MULT => 2,
+            _ => 0 //unary operators like ln or exp
+        };
+    }
+    public static string OperatorValue( Operator o )
+    {
+        return o switch
+        {
+            Operator.SBT => "-",
+            Operator.DIV => "/",
+            Operator.EXP => "exp",
+            Operator.LN => "ln",
+            Operator.ADD => "+",
+            Operator.MULT => "*",
+            _ => throw new NotSupportedException( $"Invalid Operator {o}" )
         };
     }
     public static Queue<string> InfixToPostfix( string Infix )
@@ -174,7 +182,11 @@ public static class Statics
             string InfN = InfArr[ n ];
             //number
             if ( int.TryParse( InfN, out _ ) || float.TryParse( InfN, out _ ) )
+            {
                 Output.Enqueue( InfN );
+                if ( IsUnaryOperator( Ops.Peek(), out _ ) )
+                    Output.Enqueue( Ops.Pop() );
+            }
             //function
             else if ( IsUnaryOperator( InfN, out _ ) )
                 Ops.Push( InfN );
@@ -184,10 +196,7 @@ public static class Statics
                 while ( 
                     Ops.Any() && Ops.Peek() != "(" &&
                         ( 
-                            Precedence( Ops.Peek() ) > Precedence( InfN ) || 
-                            ( 
-                                IsLeftAssoc( InfN ) && Precedence( Ops.Peek() ) >= Precedence( InfN ) 
-                            ) 
+                            Precedence( Ops.Peek() ) > Precedence( InfN ) 
                         )
                     )
                 {
@@ -210,7 +219,11 @@ public static class Statics
                     Output.Enqueue( Ops.Pop() );
             }
             else if ( InfN.Any() )
+            {
                 Output.Enqueue( InfN );
+                if ( IsUnaryOperator( Ops.Peek(), out _ ) )
+                    Output.Enqueue( Ops.Pop() );
+            }
         }
         while ( Ops.Any() )
             Output.Enqueue( Ops.Pop() );

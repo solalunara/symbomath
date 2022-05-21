@@ -4,16 +4,6 @@ using System.Linq;
 
 public abstract class Node
 {
-    protected Node( Node[] links )
-    {
-        this.links = links;
-    }
-    protected Node[] links;
-    public Node this[ int n ]
-    {
-        get => links[ n ];
-        set => links[ n ] = value;
-    }
     public static Node ParsePostfix( string[] Postfix )
     {
         if ( int.TryParse( Postfix[ ^1 ], out int IntNode ) )
@@ -21,7 +11,7 @@ public abstract class Node
         if ( float.TryParse( Postfix[ ^1 ], out float FloatNode ) )
             return new Node<float>( FloatNode );
         if ( IsUnaryOperator( Postfix[ ^1 ], out Operator uo ) )
-            return new Node<Operator>( uo, ParsePostfix( Postfix[ ..^1 ] ) );
+            return new UnaryNode( uo, ParsePostfix( Postfix[ ..^1 ] ) );
         if ( IsPlenaryOperator( Postfix[ ^1 ], out Operator po ) )
         {
             int n = Postfix.Length - 2;
@@ -47,7 +37,7 @@ public abstract class Node
             }
             ++n;
             string[] arg2 = Postfix[ n..arg1n ];
-            return new Node<Operator>( po, ParsePostfix( arg1 ), ParsePostfix( arg2 ) );
+            return new PlenaryNode( po, ParsePostfix( arg1 ), ParsePostfix( arg2 ) );
         }
         if ( Postfix[ ^1 ].Length == 1 )
             return new Node<char>( Postfix[ ^1 ][ 0 ] );
@@ -57,55 +47,91 @@ public abstract class Node
     {
         return ParsePostfix( InfixToPostfix( Infix ).ToArray() );
     }
-    public void BinaryOpsToPlenaryOps()
-    {
-        if ( this is Node<Operator> o && IsPlenaryOperator( o ) )
-        {
-            for ( int i = 0; i < links.Length; ++i )
-            {
-                if ( links[ i ] is Node<Operator> no && o.Value == no.Value )
-                {
-                    o.links = o.links[ ..i ].Concat( no.links ).Concat( o.links[ ( i + 1 ).. ] ).ToArray();
-                    --i;
-                }
-            }
-        }
-        foreach ( Node link in links )
-        {
-            link.BinaryOpsToPlenaryOps();
-        }
-    }
 }
-
 public class Node<T> : Node
 {
-    public Node( T Value, params Node[] links ) : 
-        base( links )
+    public Node( T Value )
     {
         this.Value = Value;
     }
     public T Value;
-    public static implicit operator T( Node<T> n ) => n.Value;
-    public override string? ToString()
+    public static bool operator ==( Node<T> a, Node<T> b ) => a.ToString() == b.ToString();
+    public static bool operator !=( Node<T> a, Node<T> b ) => a.ToString() != b.ToString();
+    public override bool Equals( object? obj ) => obj is Node n && ToString() == n.ToString();
+    public override int GetHashCode() => ( ToString() ?? "" ).GetHashCode();
+    public override string? ToString() => ( Value ?? throw new ArgumentNullException( "Value of node is null" ) ).ToString();
+    public void Simplify()
     {
-        string? s = "";
-        switch ( links.Length )
-        {
-            case 0:
-            s = Value!.ToString();
-            break;
-            case 1:
-            s = Value!.ToString() + " ( " + links[ 0 ].ToString() + " )";
-            break;
-            default:
-            for ( int i = 0; i < links.Length; ++i )
-                s += " ( " + links[ i ] + " ) " + ( i + 1 != links.Length ? Value!.ToString() : "" );
-                break;
-        }
-        if ( s is null )
-            return "";
+
+    }
+}
+
+public abstract class OpNode : Node<Operator>
+{
+    protected OpNode( Operator val, params Node[] links ) :
+        base( val )
+    {
+        this.links = links;
+    }
+    protected Node[] links;
+    public abstract int LinkCount { get; }
+    public abstract Node this[ int n ] { get; set; }
+}
+public class UnaryNode : OpNode
+{
+    public UnaryNode( Operator Value, Node link ) :
+        base( Value, link )
+    {
+    }
+    public override int LinkCount { get => 1; }
+    public override Node this[ int n ]
+    {
+        get => links[ n == 0 ? 0 : throw new ArgumentOutOfRangeException( $"Unary node only has one link - cannot get link number {n}" ) ];
+        set => links[ n == 0 ? 0 : throw new ArgumentOutOfRangeException( $"Unary node only has one link - cannot set link number {n}" ) ] = value ?? throw new ArgumentNullException( nameof( value ) );
+    }
+    public override string? ToString() 
+    {
+        string s = OperatorValue( Value ) + " ( " + links[ 0 ].ToString() + " )";
         while ( Regex.Match( s, "  " ).Success )
             s = Regex.Replace( s, "  ", " " );
         return s;
+    }
+}
+public class PlenaryNode : OpNode
+{
+    public PlenaryNode( Operator Value, params Node[] links ) :
+        base( Value, links )
+    {
+    }
+    public override int LinkCount { get => links.Length; }
+    public override Node this[ int n ]
+    {
+        get => links[ n ];
+        set => links[ n ] = value ?? throw new ArgumentNullException( nameof( value ) );
+    }
+    public override string? ToString()
+    {
+        string s = "";
+        for ( int i = 0; i < links.Length; ++i )
+            s += " ( " + links[ i ] + " ) " + ( i + 1 != links.Length ? OperatorValue( Value ) : "" );
+        while ( Regex.Match( s, "  " ).Success )
+            s = Regex.Replace( s, "  ", " " );
+        return s;
+    }
+    public void BinaryOpsToPlenaryOps()
+    {
+        for ( int i = 0; i < links.Length; ++i )
+        {
+            if ( links[ i ] is PlenaryNode no && Value == no.Value )
+            {
+                links = links[ ..i ].Concat( no.links ).Concat( links[ ( i + 1 ).. ] ).ToArray();
+                --i;
+            }
+        }
+        foreach ( Node link in links )
+        {
+            if ( link is PlenaryNode PlenaryLink )
+                PlenaryLink.BinaryOpsToPlenaryOps();
+        }
     }
 }
