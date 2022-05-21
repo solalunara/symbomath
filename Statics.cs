@@ -184,7 +184,7 @@ public static class Statics
             if ( int.TryParse( InfN, out _ ) || float.TryParse( InfN, out _ ) )
             {
                 Output.Enqueue( InfN );
-                if ( IsUnaryOperator( Ops.Peek(), out _ ) )
+                if ( Ops.Any() && IsUnaryOperator( Ops.Peek(), out _ ) )
                     Output.Enqueue( Ops.Pop() );
             }
             //function
@@ -221,7 +221,7 @@ public static class Statics
             else if ( InfN.Any() )
             {
                 Output.Enqueue( InfN );
-                if ( IsUnaryOperator( Ops.Peek(), out _ ) )
+                if ( Ops.Any() && IsUnaryOperator( Ops.Peek(), out _ ) )
                     Output.Enqueue( Ops.Pop() );
             }
         }

@@ -1,8 +1,9 @@
 namespace SymboMath;
 using System.Text.RegularExpressions;
 using System.Linq;
+using System.Globalization;
 
-public abstract class Node
+public abstract class Node : IComparable<Node>
 {
     public static Node ParsePostfix( string[] Postfix )
     {
@@ -37,7 +38,9 @@ public abstract class Node
             }
             ++n;
             string[] arg2 = Postfix[ n..arg1n ];
-            return new PlenaryNode( po, ParsePostfix( arg1 ), ParsePostfix( arg2 ) );
+            PlenaryNode pn = new PlenaryNode( po, ParsePostfix( arg1 ), ParsePostfix( arg2 ) ); 
+            pn.BinaryOpsToPlenaryOps();
+            return pn;
         }
         if ( Postfix[ ^1 ].Length == 1 )
             return new Node<char>( Postfix[ ^1 ][ 0 ] );
@@ -47,22 +50,70 @@ public abstract class Node
     {
         return ParsePostfix( InfixToPostfix( Infix ).ToArray() );
     }
+
+    public abstract void Simplify( SimplificationRules sr );
+    public abstract bool IsZero();
+    public abstract bool IsOne();
+    public static bool operator ==( Node a, Node b )
+    {
+        //ensure that both are simplified in the same manner
+        a.Simplify( SimplificationRules.All );
+        b.Simplify( SimplificationRules.All );
+        return a.Equals( b );
+    }
+    public static bool operator !=( Node a, Node b ) => !( a == b );
+    public abstract override bool Equals( object? obj );
+    public override int GetHashCode()
+    {
+        Node n = this;
+        n.Simplify( SimplificationRules.All );
+        return ( n.ToString() ?? "" ).GetHashCode();
+    }
+    public abstract float GetFloatValue();
+    public abstract int CompareTo( Node? o );
 }
+
+//we overrided GetHashCode() in Node, but we need to continue overriding Equals(), so just disable the warning
+#pragma warning disable CS0659 
 public class Node<T> : Node
+    where T : IConvertible
 {
     public Node( T Value )
     {
         this.Value = Value;
     }
     public T Value;
-    public static bool operator ==( Node<T> a, Node<T> b ) => a.ToString() == b.ToString();
-    public static bool operator !=( Node<T> a, Node<T> b ) => a.ToString() != b.ToString();
     public override bool Equals( object? obj ) => obj is Node n && ToString() == n.ToString();
-    public override int GetHashCode() => ( ToString() ?? "" ).GetHashCode();
     public override string? ToString() => ( Value ?? throw new ArgumentNullException( "Value of node is null" ) ).ToString();
-    public void Simplify()
+    public override void Simplify( SimplificationRules sr )
     {
 
+    }
+    public override bool IsZero() => GetFloatValue() == 0.0f;
+    public override bool IsOne() => GetFloatValue() == 1.0f;
+    public override float GetFloatValue() => Value.ToSingle( CultureInfo.CurrentCulture );
+    public override int CompareTo( Node? o )
+    {
+        if ( o is null )
+            return 1;
+        try
+        {
+            return MathF.Sign( GetFloatValue() - o.GetFloatValue() );
+        } 
+        //o is an operator
+        catch ( InvalidOperationException )
+        {
+            //we are not an operator. operators have their own CompareTo method
+            return 1; //always put operators before numbers or variables
+        }
+        //o is a variable
+        catch ( InvalidCastException )
+        {
+            //are we a variable?
+            if ( Value is char or string )
+                return Math.Sign( GetHashCode() - o.GetHashCode() );
+            return -1; //always put variables after numbers
+        }
     }
 }
 
@@ -71,11 +122,15 @@ public abstract class OpNode : Node<Operator>
     protected OpNode( Operator val, params Node[] links ) :
         base( val )
     {
-        this.links = links;
+        this.links = links.ToList();
     }
-    protected Node[] links;
+    protected List<Node> links;
     public abstract int LinkCount { get; }
     public abstract Node this[ int n ] { get; set; }
+    public override bool IsZero() => false;
+    public override bool IsOne() => false;
+    public override float GetFloatValue() => throw new InvalidOperationException( "Operator does not have float value" );
+    public abstract override int CompareTo( Node? o );
 }
 public class UnaryNode : OpNode
 {
@@ -96,6 +151,22 @@ public class UnaryNode : OpNode
             s = Regex.Replace( s, "  ", " " );
         return s;
     }
+    public override void Simplify( SimplificationRules sr )
+    {
+
+        base.Simplify( sr );
+    }
+    public override int CompareTo( Node? o )
+    {
+        if ( o is Node<Operator> )
+        {
+            if ( o is UnaryNode )
+                return GetHashCode() - o.GetHashCode();
+            else
+                return 1; //always put plenary operators before unary operators
+        }
+        return -1; //always put operators before numbers and variables
+    }
 }
 public class PlenaryNode : OpNode
 {
@@ -103,7 +174,7 @@ public class PlenaryNode : OpNode
         base( Value, links )
     {
     }
-    public override int LinkCount { get => links.Length; }
+    public override int LinkCount { get => links.Count; }
     public override Node this[ int n ]
     {
         get => links[ n ];
@@ -111,21 +182,25 @@ public class PlenaryNode : OpNode
     }
     public override string? ToString()
     {
+        //sort the nodes
+        links.Sort();
+
         string s = "";
-        for ( int i = 0; i < links.Length; ++i )
-            s += " ( " + links[ i ] + " ) " + ( i + 1 != links.Length ? OperatorValue( Value ) : "" );
+        for ( int i = 0; i < links.Count; ++i )
+            s += " ( " + links[ i ] + " ) " + ( i + 1 != links.Count ? OperatorValue( Value ) : "" );
         while ( Regex.Match( s, "  " ).Success )
             s = Regex.Replace( s, "  ", " " );
         return s;
     }
     public void BinaryOpsToPlenaryOps()
     {
-        for ( int i = 0; i < links.Length; ++i )
+        for ( int i = 0; i < links.Count; ++i )
         {
             if ( links[ i ] is PlenaryNode no && Value == no.Value )
             {
-                links = links[ ..i ].Concat( no.links ).Concat( links[ ( i + 1 ).. ] ).ToArray();
-                --i;
+                List<Node> LinkLinks = no.links;
+                links.AddRange( LinkLinks );
+                links.RemoveAt( i-- );
             }
         }
         foreach ( Node link in links )
@@ -133,5 +208,38 @@ public class PlenaryNode : OpNode
             if ( link is PlenaryNode PlenaryLink )
                 PlenaryLink.BinaryOpsToPlenaryOps();
         }
+    }
+    public override void Simplify( SimplificationRules sr )
+    {
+        if ( Value == Operator.MULT )
+        {
+            for ( int i = 0; i < links.Count; ++i )
+            {
+                if ( links[ i ].IsOne() )
+                    links.RemoveAt( i-- );
+                if ( links[ i ].IsZero() )
+                    links.Clear();
+            }
+        }
+        if ( Value == Operator.ADD )
+        {
+            for ( int i = 0; i < links.Count; ++i )
+            {
+                if ( links[ i ].IsZero() )
+                    links.RemoveAt( i-- );
+            }
+        }
+        base.Simplify( sr );
+    }
+    public override int CompareTo( Node? o )
+    {
+        if ( o is Node<Operator> )
+        {
+            if ( o is PlenaryNode )
+                return GetHashCode() - o.GetHashCode();
+            else
+                return -1; //always put plenary operators before unary operators
+        }
+        return -1; //always put operators before numbers and variables
     }
 }
