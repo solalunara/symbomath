@@ -8,7 +8,7 @@ public abstract class Node
     {
         this.links = links;
     }
-    private Node[] links;
+    protected Node[] links;
     public Node this[ int n ]
     {
         get => links[ n ];
@@ -86,4 +86,26 @@ public class Node<T> : Node
     }
     public T Value;
     public static implicit operator T( Node<T> n ) => n.Value;
+    public override string? ToString()
+    {
+        string? s = "";
+        switch ( links.Length )
+        {
+            case 0:
+            s = Value!.ToString();
+            break;
+            case 1:
+            s = Value!.ToString() + " ( " + links[ 0 ].ToString() + " )";
+            break;
+            default:
+            for ( int i = 0; i < links.Length; ++i )
+                s += " ( " + links[ i ] + " ) " + ( i + 1 != links.Length ? Value!.ToString() : "" );
+                break;
+        }
+        if ( s is null )
+            return "";
+        while ( Regex.Match( s, "  " ).Success )
+            s = Regex.Replace( s, "  ", " " );
+        return s;
+    }
 }
