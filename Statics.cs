@@ -2,39 +2,41 @@ namespace SymboMath;
 using System.Text.RegularExpressions;
 public static class Statics
 {
-    public static PlenaryOperator GetPlenaryOperator( string s )
-    {
-        return s switch 
-        {
-            "+" => PlenaryOperator.ADD,
-            "*" => PlenaryOperator.MULT,
-            _ => PlenaryOperator.NONE
-        };
-    }
-    public static bool IsPlenaryOperator( string s, out PlenaryOperator po )
-    {
-        po = GetPlenaryOperator( s );
-        return po != PlenaryOperator.NONE;
-    }
-    public static UnaryOperator GetUnaryOperator( string s )
+    public static Operator GetOperator( string s )
     {
         return s switch
         {
-            "-" => UnaryOperator.SBT,
-            "/" => UnaryOperator.DIV,
-            "exp" => UnaryOperator.EXP,
-            "ln" => UnaryOperator.LN,
-            _ => UnaryOperator.NONE
+            "-" => Operator.SBT,
+            "/" => Operator.DIV,
+            "exp" => Operator.EXP,
+            "ln" => Operator.LN,
+            "+" => Operator.ADD,
+            "*" => Operator.MULT,
+            _ => Operator.NONE
         };
     }
-    public static bool IsUnaryOperator( string s, out UnaryOperator uo )
+    public static bool IsUnaryOperator( Operator o )
     {
-        uo = GetUnaryOperator( s );
-        return uo != UnaryOperator.NONE;
+        return ( Operator.UnaryOperator & o ) != 0;
     }
-    public static bool IsOperator( string s )
+    public static bool IsUnaryOperator( string s, out Operator o )
     {
-        return IsUnaryOperator( s, out _ ) || IsPlenaryOperator( s, out _ );
+        o = GetOperator( s );
+        return ( Operator.UnaryOperator & o ) != 0;
+    }
+    public static bool IsPlenaryOperator( Operator o )
+    {
+        return ( Operator.PlenaryOperator & o ) != 0;
+    }
+    public static bool IsPlenaryOperator( string s, out Operator o )
+    {
+        o = GetOperator( s );
+        return ( Operator.PlenaryOperator & o ) != 0;
+    }
+    public static bool IsOperator( string s, out Operator o )
+    {
+        o = GetOperator( s );
+        return o != Operator.NONE;
     }
     private static string NegOpsToFuncs( string In )
     {
@@ -44,7 +46,7 @@ public static class Statics
         {
             string left = m.Result( "$1" );
             //negative is already a func not an operator, skip
-            if ( left is "(" || IsOperator( left ) )
+            if ( left is "(" || IsOperator( left, out _ ) )
             {
                 In = In[ ..m.Index ] + m.Result( "$1 -! " ) + In[ ( m.Index + m.Length ).. ];
                 continue;
@@ -63,7 +65,7 @@ public static class Statics
         {
             string left = m.Result( "$1" );
             //div is already a func not an operator, skip
-            if ( left is "(" || IsOperator( left ) )
+            if ( left is "(" || IsOperator( left, out _ ) )
             {
                 In = In[ ..m.Index ] + m.Result( "$1 /! " ) + In[ ( m.Index + m.Length ).. ];
                 continue;
@@ -134,12 +136,84 @@ public static class Statics
         //now that we're done change all "/!"s to "/"s
         return Regex.Replace( In, @"\/\!", "/" );
     }
-    public static string FormatInfix( string Infix )
+    public static string FormatExpression( string Infix )
     {
         return ExpOpsToFuncs( DivOpsToFuncs( NegOpsToFuncs( Infix ) ) );
     }
     public static int OperatorRange( string[] Postfix )
     {
         return Postfix.Length - 1 - Postfix.ToList().LastIndexOf( Postfix.Last(), Postfix.Length - 2 );
+    }
+    public static bool IsLeftAssoc( string Op )
+    {
+        return Op != "^";
+    }
+    public static int Precedence( string Op )
+    {
+        return Precedence( GetOperator( Op ) );
+    }
+    public static int Precedence( Operator Op )
+    {
+        return Op switch
+        {
+            Operator.ADD => 0,
+            Operator.MULT => 1,
+            _ => throw new InvalidOperationException( $"{Op} not a plenary operator" )
+        };
+    }
+    public static Queue<string> InfixToPostfix( string Infix )
+    {
+        Infix = FormatExpression( Infix );
+
+        Queue<string> Output = new();
+        Stack<string> Ops = new();
+
+        string[] InfArr = Infix.Split( ' ' );
+        for ( int n = 0; n < InfArr.Length; ++n )
+        {
+            string InfN = InfArr[ n ];
+            //number
+            if ( int.TryParse( InfN, out _ ) || float.TryParse( InfN, out _ ) )
+                Output.Enqueue( InfN );
+            //function
+            else if ( IsUnaryOperator( InfN, out _ ) )
+                Ops.Push( InfN );
+            //operator
+            else if ( IsPlenaryOperator( InfN, out _ ) )
+            {
+                while ( 
+                    Ops.Any() && Ops.Peek() != "(" &&
+                        ( 
+                            Precedence( Ops.Peek() ) > Precedence( InfN ) || 
+                            ( 
+                                IsLeftAssoc( InfN ) && Precedence( Ops.Peek() ) >= Precedence( InfN ) 
+                            ) 
+                        )
+                    )
+                {
+                    Output.Enqueue( Ops.Pop() );
+                }
+                Ops.Push( InfN );
+            }
+            //left perim
+            else if ( InfN is "(" )
+                Ops.Push( InfN );
+            //right perim
+            else if ( InfN is ")" )
+            {
+                while ( Ops.Peek() != "(" )
+                {
+                    Output.Enqueue( Ops.Pop() );
+                }
+                Ops.Pop();
+                if ( IsUnaryOperator( Ops.Peek(), out _ ) )
+                    Output.Enqueue( Ops.Pop() );
+            }
+            else if ( InfN.Any() )
+                Output.Enqueue( InfN );
+        }
+        while ( Ops.Any() )
+            Output.Enqueue( Ops.Pop() );
+        return Output;
     }
 }

@@ -1,5 +1,6 @@
 namespace SymboMath;
 using System.Text.RegularExpressions;
+using System.Linq;
 
 public abstract class Node
 {
@@ -7,109 +8,71 @@ public abstract class Node
     {
         this.links = links;
     }
-    private readonly Node[] links;
+    private Node[] links;
     public Node this[ int n ]
     {
         get => links[ n ];
         set => links[ n ] = value;
     }
-    private static bool IsLeftAssoc( string Op )
+    public static Node ParsePostfix( string[] Postfix )
     {
-        return Op != "^";
-    }
-    private static int Precedence( string Op )
-    {
-        return Op switch
+        if ( int.TryParse( Postfix[ ^1 ], out int IntNode ) )
+            return new Node<int>( IntNode );
+        if ( float.TryParse( Postfix[ ^1 ], out float FloatNode ) )
+            return new Node<float>( FloatNode );
+        if ( IsUnaryOperator( Postfix[ ^1 ], out Operator uo ) )
+            return new Node<Operator>( uo, ParsePostfix( Postfix[ ..^1 ] ) );
+        if ( IsPlenaryOperator( Postfix[ ^1 ], out Operator po ) )
         {
-            "+" or "-" => 0,
-            "*" or "/" => 1,
-            "^" => 2,
-            _ => throw new InvalidOperationException( $"{Op} not an op" );
-        };
-    }
-    private static Queue<string> InfixToPostfix( string Infix )
-    {
-        Infix = FormatInfix( Infix );
-
-        Queue<string> Output = new();
-        Stack<string> Ops = new();
-
-        string[] InfArr = Infix.Split( ' ' );
-        for ( int n = 0; n < InfArr.Length; ++n )
-        {
-            string InfN = InfArr[ n ];
-            //number
-            if ( int.TryParse( InfN, out _ ) || float.TryParse( InfN, out _ ) )
-                Output.Enqueue( InfN );
-            //function
-            else if ( IsUnaryOperator( InfN, out _ ) )
-                Ops.Push( InfN );
-            //operator
-            else if ( IsPlenaryOperator( InfN, out _ ) )
+            int n = Postfix.Length - 2;
+            for ( int Count = 1; Count != 0; )
             {
-                while ( 
-                    Ops.Any() && Ops.Peek() != "(" &&
-                        ( 
-                            Precedence( Ops.Peek() ) > Precedence( InfN ) || 
-                            ( 
-                                IsLeftAssoc( InfN ) && Precedence( Ops.Peek() ) >= Precedence( InfN ) 
-                            ) 
-                        )
-                    )
-                {
-                    Output.Enqueue( Ops.Pop() );
-                    Ops.Push( InfN );
-                }
+                if ( IsUnaryOperator( Postfix[ n ], out _ ) )
+                    Count += 1;
+                if ( IsPlenaryOperator( Postfix[ n ], out _ ) )
+                    Count += 2;
+                --n;
+                --Count; //needs to be modified *before* the check
             }
-            //left perim
-            else if ( InfN is "(" )
-                Ops.Push( InfN );
-            //right perim
-            else if ( InfN is ")" )
+            int arg1n = n + 1; //we want where arg1 begins, not where arg2 ends
+            string[] arg1 = Postfix[ arg1n..^1 ];
+            for ( int Count = 1; Count != 0; )
             {
-                while ( Ops.Peek() != "(" )
+                if ( IsUnaryOperator( Postfix[ n ], out _ ) )
+                    Count += 1;
+                if ( IsPlenaryOperator( Postfix[ n ], out _ ) )
+                    Count += 2;
+                --n;
+                --Count; //needs to be modified *before* the check
+            }
+            ++n;
+            string[] arg2 = Postfix[ n..arg1n ];
+            return new Node<Operator>( po, ParsePostfix( arg1 ), ParsePostfix( arg2 ) );
+        }
+        if ( Postfix[ ^1 ].Length == 1 )
+            return new Node<char>( Postfix[ ^1 ][ 0 ] );
+        return new Node<string>( Postfix[ ^1 ] );
+    }
+    public static Node ParseInfix( string Infix )
+    {
+        return ParsePostfix( InfixToPostfix( Infix ).ToArray() );
+    }
+    public void BinaryOpsToPlenaryOps()
+    {
+        if ( this is Node<Operator> o && IsPlenaryOperator( o ) )
+        {
+            for ( int i = 0; i < links.Length; ++i )
+            {
+                if ( links[ i ] is Node<Operator> no && o.Value == no.Value )
                 {
-                    Output.Enqueue( Ops.Pop() );
+                    o.links = o.links[ ..i ].Concat( no.links ).Concat( o.links[ ( i + 1 ).. ] ).ToArray();
+                    --i;
                 }
-                Ops.Pop();
-                if ( IsUnaryOperator( Ops.Peek(), out _ ) )
             }
         }
-        while ( Ops.Any() )
-            Output.Enqueue( Ops.Pop() );
-        return Output;
-    }
-    public Node Parse( string[] Postfix )
-    {
-        Node[] ExpNodeArr = new Node[ Postfix.Length ];
-        for ( int n = Postfix.Length; n >= 0; --n )
+        foreach ( Node link in links )
         {
-            if ( int.TryParse( Postfix[ n ], out int IntNode ) )
-            {
-                ExpNodeArr[ n ] = new Node<int>( IntNode );
-                continue;
-            }
-            if ( float.TryParse( Postfix[ n ], out float FloatNode ) )
-            {
-                ExpNodeArr[ n ] = new Node<float>( FloatNode );
-                continue;
-            }
-            if ( IsUnaryOperator( Postfix[ n ], out UnaryOperator uo ) )
-            {
-                ExpNodeArr[ n ] = new Node<UnaryOperator>( uo, Parse(  ) );
-                continue;
-            }
-            if ( IsPlenaryOperator( Postfix[ n ], out PlenaryOperator po ) )
-            {
-                int Index = n - 1;
-                while ( Postfix[ n ] != Postfix[ Index ] )
-                {
-                    --Index;
-                }
-                ++Index;
-                ExpNodeArr[ n ] = new Node<PlenaryOperator>( po, Parse( Postfix[ Index..n ] ) );
-                continue;
-            }
+            link.BinaryOpsToPlenaryOps();
         }
     }
 }
@@ -120,16 +83,7 @@ public class Node<T> : Node
         base( links )
     {
         this.Value = Value;
-        if ( Value is UnaryOperator )
-            throw new NotSupportedException( "Cannot make Node<UnaryOperator>, please use UNode" );
     }
     public T Value;
     public static implicit operator T( Node<T> n ) => n.Value;
-}
-public class UNode : Node<UnaryOperator>
-{
-    public UNode( UnaryOperator Value, Node link ) :
-        base( Value, link )
-    {
-    }
 }
