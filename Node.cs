@@ -71,6 +71,7 @@ public abstract class Node : IComparable<Node>
     }
     public abstract float GetFloatValue();
     public abstract int CompareTo( Node? o );
+    public abstract Node Copy();
 }
 
 //we overrided GetHashCode() in Node, but we need to continue overriding Equals(), so just disable the warning
@@ -115,6 +116,10 @@ public class Node<T> : Node
             return -1; //always put variables after numbers
         }
     }
+    public override Node Copy()
+    {
+        return new Node<T>( Value );
+    }
 }
 
 public abstract class OpNode : Node<Operator>
@@ -157,10 +162,6 @@ public class UnaryNode : OpNode
         if ( Value == Operator.DIV && links[ 0 ].IsZero() )
             throw new DivideByZeroException( $"Cannot divide by zero: {this}" );
 
-        // - - a = / / a = a
-        if ( links[ 0 ] is UnaryNode un && un.Value == Value && ( Value is Operator.SBT or Operator.DIV ) )
-            return un.links[ 0 ].Simplify( sr );
-
         // exp( ln( a ) ) = a
         if ( Value == Operator.EXP && links[ 0 ] is UnaryNode unexp && unexp.Value == Operator.LN )
         {
@@ -173,17 +174,33 @@ public class UnaryNode : OpNode
         }
 
         // -( a + b ) = - a + - b
-        if ( !sr.HasFlag( SimplificationRules.Move_Negatives_Up ) )
+        if ( sr.HasFlag( SimplificationRules.Distribute ) )
         {
-            if ( links[ 0 ] is PlenaryNode pn )
+            if ( links[ 0 ] is PlenaryNode )
             {
+                PlenaryNode pn = (PlenaryNode)links[ 0 ].Copy();
                 if ( pn.Value == Operator.MULT )
                     pn[ 0 ] = new UnaryNode( Operator.SBT, pn[ 0 ] );
                 else
                     for ( int i = 0; i < pn.LinkCount; ++i ) pn[ i ] = new UnaryNode( Operator.SBT, pn[ i ] );
                 return pn.Simplify( sr );
             }
+            else if ( links[ 0 ] is UnaryNode )
+            {
+                UnaryNode un = (UnaryNode)links[ 0 ].Copy();
+                // - - a = / / a = a
+                if ( un.Value == Value && ( Value is Operator.SBT or Operator.DIV ) )
+                    return un.links[ 0 ].Simplify( sr );
+
+                // prefer / - to - / if distributing
+                if ( Value is Operator.SBT && un.Value is Operator.DIV )
+                {
+                    un[ 0 ] = new UnaryNode( Operator.SBT, un[ 0 ] );
+                    return un.Simplify( sr );
+                }
+            }
         }
+        //no need for an 'else' case, we're a unary node, we can't undistribute ourselves
 
         return base.Simplify( sr );
     }
@@ -197,6 +214,10 @@ public class UnaryNode : OpNode
                 return 1; //always put plenary operators before unary operators
         }
         return -1; //always put operators before numbers and variables
+    }
+    public override Node Copy()
+    {
+        return new UnaryNode( Value, links[ 0 ].Copy() );
     }
 }
 public class PlenaryNode : OpNode
@@ -292,5 +313,12 @@ public class PlenaryNode : OpNode
                 return -1; //always put plenary operators before unary operators
         }
         return -1; //always put operators before numbers and variables
+    }
+    public override Node Copy()
+    {
+        Node[] links = new Node[ this.links.Count ];
+        for ( int i = 0; i < links.Length; ++i )
+            links[ i ] = this.links[ i ].Copy();
+        return new PlenaryNode( Value, links );
     }
 }

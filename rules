@@ -1,33 +1,27 @@
 #things that need to be implemented
 a * / a = 1
 -a * -b = a * b
-/ ( p * / q ) = q * / p
-- ( b + - a ) = a + - b
 -a * / -b = a * / b
 a * / b * / ( c * / d ) = a * / b * d * / c
 
 #things that need to be decided by user
-	#Move_Negatives_Up
+	#Distrubute
 		a * - b = - a * b = - ( a * b )
 		a * / -b = -a * / b = - ( a * / b )
-	#Distribute_Times
 		m * ( a + b ) = m * a + m * b
-	#Isolate_Division
 		a * / b * c * / d = ( a * c ) * / ( b * d )
 	#Condense_Fractions
 		a * / c + (-?) b * / c = ( a + (-?) b ) * / c
 		a * / c + (-?) b * / d = ( a * d + (-?) b * c ) * / ( c * d )
 	#Prefer_Exp_To_Mult
 		exp( ln( a ) * n ) = a * a * a ... n times
-	#Prefer_Positive_Exp
-		exp( -a ) = / exp( a )
-	#Prefer_Positive_Ln
-		ln( / x ) = - ln( x )
 	#Distribute_Exponents
 		exp( a * m ) * exp( a * n ) = exp( a * ( m + n ) )
-	#Condense_Ln
+	#Expand_Ln
 		ln( a * b ) = ln( a ) + ln( b )
-	#Condense_Exp
+		ln( / x ) = - ln( x )
+	#Expand_Exp
 		exp( a + b ) = exp( a ) * exp( b )
+		exp( -a ) = / exp( a )
 
 #things i'm deciding on
