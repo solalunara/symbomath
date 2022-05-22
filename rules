@@ -1,14 +1,10 @@
 #things that need to be implemented
 a * / a = 1
-- - a = a
 -a * -b = a * b
 / ( p * / q ) = q * / p
 - ( b + - a ) = a + - b
 -a * / -b = a * / b
-a * / 0 = undef
 a * / b * / ( c * / d ) = a * / b * d * / c
-exp( ln( a ) ) = a
-exp( 0 ) = 1
 
 #things that need to be decided by user
 	#Move_Negatives_Up
