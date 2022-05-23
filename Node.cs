@@ -12,7 +12,7 @@ public abstract class Node : IComparable<Node>
         if ( float.TryParse( Postfix[ ^1 ], out float FloatNode ) )
             return new Node<float>( FloatNode );
         if ( IsUnaryOperator( Postfix[ ^1 ], out Operator uo ) )
-            return new UnaryNode( uo, ParsePostfix( Postfix[ ..^1 ] ) );
+            return OpNode.Parse( uo, ParsePostfix( Postfix[ ..^1 ] ) );
         if ( IsPlenaryOperator( Postfix[ ^1 ], out Operator po ) )
         {
             int n = Postfix.Length - 2;
@@ -38,7 +38,7 @@ public abstract class Node : IComparable<Node>
             }
             ++n;
             string[] arg2 = Postfix[ n..arg1n ];
-            PlenaryNode pn = new PlenaryNode( po, ParsePostfix( arg1 ), ParsePostfix( arg2 ) ); 
+            PlenaryNode pn = (PlenaryNode)OpNode.Parse( po, ParsePostfix( arg1 ), ParsePostfix( arg2 ) ); 
             pn.BinaryOpsToPlenaryOps();
             return pn;
         }
@@ -86,10 +86,7 @@ public class Node<T> : Node
     public T Value;
     public override bool Equals( object? obj ) => obj is Node n && ToString() == n.ToString();
     public override string? ToString() => ( Value ?? throw new ArgumentNullException( "Value of node is null" ) ).ToString();
-    public override Node Simplify( SimplificationRules sr )
-    {
-        return this;
-    }
+    public override Node Simplify( SimplificationRules sr ) => this;
     public override bool IsZero() => GetFloatValue() == 0.0f;
     public override bool IsOne() => GetFloatValue() == 1.0f;
     public override float GetFloatValue() => Value.ToSingle( CultureInfo.CurrentCulture );
@@ -129,6 +126,19 @@ public abstract class OpNode : Node<Operator>
     {
         this.links = links.ToList();
     }
+    public static OpNode Parse( Operator op, params Node[] links )
+    {
+        return op switch
+        {
+            Operator.SBT => new SBTNode( links[ 0 ] ),
+            Operator.DIV => new DIVNode( links[ 0 ] ),
+            Operator.EXP => new EXPNode( links[ 0 ] ),
+            Operator.LN => new LNNode( links[ 0 ] ),
+            Operator.ADD => new ADDNode( links ),
+            Operator.MULT => new MULTNode( links ),
+            _ => throw new ArgumentException( $"Operator {op} is not a operator so it can't be parsed to one" )
+        };
+    }
     protected List<Node> links;
     public int LinkCount { get => links.Count; }
     public Node this[ int n ] { get => links[ n ]; set => links[ n ] = value; }
@@ -136,14 +146,26 @@ public abstract class OpNode : Node<Operator>
     public override bool IsOne() => false;
     public override float GetFloatValue() => throw new InvalidOperationException( "Operator does not have float value" );
     public abstract override int CompareTo( Node? o );
-    public override Node Simplify(SimplificationRules sr)
+    public sealed override Node Simplify( SimplificationRules sr )
     {
-        foreach ( Node link in links )
-            link.Simplify( sr );
-        return base.Simplify( sr );
+        OpNode copy = (OpNode)this.Copy();
+        for ( int i = 0; i < LinkCount; ++i )
+            copy[ i ] = links[ i ].Simplify( sr );
+        if ( copy is PlenaryNode pn )
+            pn.BinaryOpsToPlenaryOps();
+        return copy.SimplifyOpNode( sr );
+    }
+    //SimplifyOpNode should always be running in a copy, so we can modify links directly
+    protected abstract Node SimplifyOpNode( SimplificationRules sr );
+    public override Node Copy()
+    {
+        Node[] links = new Node[ this.links.Count ];
+        for ( int i = 0; i < links.Length; ++i )
+            links[ i ] = this.links[ i ].Copy();
+        return OpNode.Parse( Value, links );
     }
 }
-public class UnaryNode : OpNode
+public abstract class UnaryNode : OpNode
 {
     public UnaryNode( Operator Value, Node link ) :
         base( Value, link )
@@ -156,54 +178,6 @@ public class UnaryNode : OpNode
             s = Regex.Replace( s, "  ", " " );
         return s;
     }
-    public override Node Simplify( SimplificationRules sr )
-    {
-        //throw exception if div by zero
-        if ( Value == Operator.DIV && links[ 0 ].IsZero() )
-            throw new DivideByZeroException( $"Cannot divide by zero: {this}" );
-
-        // exp( ln( a ) ) = a
-        if ( Value == Operator.EXP && links[ 0 ] is UnaryNode unexp && unexp.Value == Operator.LN )
-        {
-            if ( unexp.Value == Operator.LN )
-                return unexp[ 0 ].Simplify( sr );
-            else if ( unexp[ 0 ].IsZero() )
-                return new Node<int>( 1 );
-            else if ( unexp[ 0 ].IsOne() )
-                return new Node<float>( MathF.E );
-        }
-
-        // -( a + b ) = - a + - b
-        if ( sr.HasFlag( SimplificationRules.Distribute ) )
-        {
-            if ( links[ 0 ] is PlenaryNode )
-            {
-                PlenaryNode pn = (PlenaryNode)links[ 0 ].Copy();
-                if ( pn.Value == Operator.MULT )
-                    pn[ 0 ] = new UnaryNode( Operator.SBT, pn[ 0 ] );
-                else
-                    for ( int i = 0; i < pn.LinkCount; ++i ) pn[ i ] = new UnaryNode( Operator.SBT, pn[ i ] );
-                return pn.Simplify( sr );
-            }
-            else if ( links[ 0 ] is UnaryNode )
-            {
-                UnaryNode un = (UnaryNode)links[ 0 ].Copy();
-                // - - a = / / a = a
-                if ( un.Value == Value && ( Value is Operator.SBT or Operator.DIV ) )
-                    return un.links[ 0 ].Simplify( sr );
-
-                // prefer / - to - / if distributing
-                if ( Value is Operator.SBT && un.Value is Operator.DIV )
-                {
-                    un[ 0 ] = new UnaryNode( Operator.SBT, un[ 0 ] );
-                    return un.Simplify( sr );
-                }
-            }
-        }
-        //no need for an 'else' case, we're a unary node, we can't undistribute ourselves
-
-        return base.Simplify( sr );
-    }
     public override int CompareTo( Node? o )
     {
         if ( o is Node<Operator> )
@@ -215,12 +189,8 @@ public class UnaryNode : OpNode
         }
         return -1; //always put operators before numbers and variables
     }
-    public override Node Copy()
-    {
-        return new UnaryNode( Value, links[ 0 ].Copy() );
-    }
 }
-public class PlenaryNode : OpNode
+public abstract class PlenaryNode : OpNode
 {
     public PlenaryNode( Operator Value, params Node[] links ) :
         base( Value, links )
@@ -255,53 +225,11 @@ public class PlenaryNode : OpNode
                 PlenaryLink.BinaryOpsToPlenaryOps();
         }
     }
-    public override Node Simplify( SimplificationRules sr )
+    protected override Node SimplifyOpNode( SimplificationRules sr )
     {
-        PlenaryNode n = this;
-        if ( Value == Operator.MULT )
-        {
-            for ( int i = 0; i < n.links.Count; ++i )
-            {
-                if ( n[ i ].IsOne() )
-                    n.links.RemoveAt( i-- );
-                if ( n[ i ].IsZero() )
-                    return new Node<int>( 0 );
-            }
-            if ( sr.HasFlag( SimplificationRules.Isolate_Division ) )
-            {
-                //first, actually isolate division
-
-
-                //if division is isolated, we only need to search at depth 1
-                // a * / a = 1
-                for ( int i = 0; i < n.LinkCount - 1; ++i )
-                {
-                    for ( int j = i + 1; j < n.LinkCount; ++j )
-                    {
-                        if ( n[ j ] is UnaryNode un && un.Value == Operator.DIV && un[ 0 ] == n[ i ] )
-                        {
-                            n.links.RemoveAt( j-- );
-                            n.links.RemoveAt( i-- );
-                        }
-                    }
-                }
-            }
-            if ( !links.Any() )
-                return new Node<int>( 1 );
-        }
-        if ( Value == Operator.ADD )
-        {
-            for ( int i = 0; i < n.links.Count; ++i )
-            {
-                if ( n[ i ].IsZero() )
-                    n.links.RemoveAt( i-- );
-            }
-            if ( !links.Any() )
-                return new Node<int>( 0 );
-        }
         if ( links.Count == 1 )
             return links[ 0 ].Simplify( sr );
-        return n;
+        return this;
     }
     public override int CompareTo( Node? o )
     {
@@ -314,11 +242,138 @@ public class PlenaryNode : OpNode
         }
         return -1; //always put operators before numbers and variables
     }
-    public override Node Copy()
+}
+
+public class SBTNode : UnaryNode
+{
+    public SBTNode( Node link ) :
+        base( Operator.SBT, link )
     {
-        Node[] links = new Node[ this.links.Count ];
-        for ( int i = 0; i < links.Length; ++i )
-            links[ i ] = this.links[ i ].Copy();
-        return new PlenaryNode( Value, links );
+    }
+    protected override Node SimplifyOpNode( SimplificationRules sr )
+    {
+        // -( a + b ) = - a + - b
+        if ( sr.HasFlag( SimplificationRules.Distribute ) )
+        {
+            if ( links[ 0 ] is PlenaryNode )
+            {
+                PlenaryNode pn = (PlenaryNode)links[ 0 ].Copy();
+                if ( pn.Value == Operator.MULT )
+                    pn[ 0 ] = new SBTNode( pn[ 0 ] );
+                else
+                    for ( int i = 0; i < pn.LinkCount; ++i ) pn[ i ] = new SBTNode( pn[ i ] );
+                return pn.Simplify( sr );
+            }
+            // - - a = / / a = a
+            if ( links[ 0 ] is SBTNode sbtlink )
+                return sbtlink[ 0 ].Simplify( sr );
+            // prefer / - to - / if distributing
+            if ( links[ 0 ] is DIVNode divlink )
+            {
+                divlink[ 0 ] = new SBTNode( divlink[ 0 ] );
+                return divlink.Simplify( sr );
+            }
+        }
+    }
+}
+public class DIVNode : UnaryNode
+{
+    public DIVNode( Node link ) :
+        base( Operator.DIV, link )
+    {
+    }
+    protected override Node SimplifyOpNode( SimplificationRules sr )
+    {
+        //throw exception if div by zero
+        if ( links[ 0 ].IsZero() )
+            throw new DivideByZeroException( $"Cannot divide by zero: {this}" );
+
+    }
+}
+public class EXPNode : UnaryNode
+{
+    public EXPNode( Node link ) :
+        base( Operator.EXP, link )
+    {
+    }
+    protected override Node SimplifyOpNode( SimplificationRules sr )
+    {
+        // exp( ln( a ) ) = a
+        if ( links[ 0 ] is UnaryNode unexp && unexp.Value == Operator.LN )
+        {
+            if ( unexp.Value == Operator.LN )
+                return unexp[ 0 ].Simplify( sr );
+            else if ( unexp[ 0 ].IsZero() )
+                return new Node<int>( 1 );
+            else if ( unexp[ 0 ].IsOne() )
+                return new Node<float>( MathF.E );
+        }
+    }
+}
+public class LNNode : UnaryNode
+{
+    public LNNode( Node link ) :
+        base( Operator.LN, link )
+    {
+    }
+    protected override Node SimplifyOpNode( SimplificationRules sr )
+    {
+        throw new NotImplementedException();
+    }
+}
+public class ADDNode : PlenaryNode
+{
+    public ADDNode( params Node[] links ) :
+        base( Operator.ADD, links )
+    {
+    }
+    protected override Node SimplifyOpNode( SimplificationRules sr )
+    {
+        for ( int i = 0; i < links.Count; ++i )
+        {
+            if ( links[ i ].IsZero() )
+                links.RemoveAt( i-- );
+        }
+        if ( !links.Any() )
+            return new Node<int>( 0 );
+    }
+}
+public class MULTNode : PlenaryNode
+{
+    public MULTNode( params Node[] links ) :
+        base( Operator.MULT, links )
+    {
+    }
+    protected override Node SimplifyOpNode( SimplificationRules sr )
+    {
+        for ( int i = 0; i < links.Count; ++i )
+        {
+            if ( links[ i ].IsOne() )
+                links.RemoveAt( i-- );
+            if ( links[ i ].IsZero() )
+                return new Node<int>( 0 );
+        }
+        if ( sr.HasFlag( SimplificationRules.Isolate_Division ) )
+        {
+            //first, actually isolate division
+
+
+            //if division is isolated, we only need to search at depth 1
+            // a * / a = 1
+            for ( int i = 0; i < n.LinkCount - 1; ++i )
+            {
+                for ( int j = i + 1; j < n.LinkCount; ++j )
+                {
+                    if ( n[ j ] is UnaryNode un && un.Value == Operator.DIV && un[ 0 ] == n[ i ] )
+                    {
+                        n.links.RemoveAt( j-- );
+                        n.links.RemoveAt( i-- );
+                    }
+                }
+            }
+        }
+        if ( !links.Any() )
+            return new Node<int>( 1 );
+        throw new NotImplementedException();
     }
 }
