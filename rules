@@ -5,23 +5,27 @@ a * / a = 1
 a * / b * / ( c * / d ) = a * / b * d * / c
 
 #things that need to be decided by user
-	#Distrubute
+	#DistrubuteNegative
 		a * - b = - a * b = - ( a * b )
-		a * / -b = -a * / b = - ( a * / b )
+	#DistributeDivision
+		a * / - b = a * - / b
+	#DistributeAddition
 		m * ( a + b ) = m * a + m * b
-		a * / b * c * / d = ( a * c ) * / ( b * d )
-	#Condense_Fractions
-		a * / c + (-?) b * / c = ( a + (-?) b ) * / c
-		a * / c + (-?) b * / d = ( a * d + (-?) b * c ) * / ( c * d )
-	#Prefer_Exp_To_Mult
-		exp( ln( a ) * n ) = a * a * a ... n times
-	#Distribute_Exponents
-		exp( a * m ) * exp( a * n ) = exp( a * ( m + n ) )
-	#Expand_Ln
+	#PreferAddition
+		a * / c + b * / c = ( a + b ) * / c
+		a * / c + b * / d = ( a * d + b * c ) * / ( c * d )
+	#PreferMultiplication
+		a * / c + b * / c = ( a + b ) * / c
+		a * / c + b * / d = ( a * d + b * c ) * / ( c * d )
+	#PreferRepeatMult
+		exp( a * n ) = exp( a ) * exp( a ) * ... n times
+	#ExpandLnMultToAdd / CondenseLnAddToMult
 		ln( a * b ) = ln( a ) + ln( b )
+	#ExpandLnDivToNeg / CondenseLnNegToDiv
 		ln( / x ) = - ln( x )
-	#Expand_Exp
+	#ExpandExpAddToMult / CondenseExpMultToAdd
 		exp( a + b ) = exp( a ) * exp( b )
+	#ExpandExpNegToDiv / CondenseExpDivToNeg
 		exp( -a ) = / exp( a )
 
 #things i'm deciding on

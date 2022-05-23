@@ -264,7 +264,7 @@ public class SBTNode : UnaryNode
                     for ( int i = 0; i < pn.LinkCount; ++i ) pn[ i ] = new SBTNode( pn[ i ] );
                 return pn.Simplify( sr );
             }
-            // - - a = / / a = a
+            // - - a = a
             if ( links[ 0 ] is SBTNode sbtlink )
                 return sbtlink[ 0 ].Simplify( sr );
             // prefer / - to - / if distributing
@@ -274,6 +274,8 @@ public class SBTNode : UnaryNode
                 return divlink.Simplify( sr );
             }
         }
+
+        return this.Copy();
     }
 }
 public class DIVNode : UnaryNode
@@ -298,6 +300,19 @@ public class EXPNode : UnaryNode
     }
     protected override Node SimplifyOpNode( SimplificationRules sr )
     {
+
+        if ( sr.HasFlag( SimplificationRules.ExpandExpAddToMult ) )
+        {
+            if ( links[ 0 ] is ADDNode an )
+            {
+                EXPNode[] links = new EXPNode[ an.LinkCount ];
+            }
+        }
+
+        if ( sr.HasFlag( SimplificationRules.Expand_Exp ) )
+        {
+            
+        }
         // exp( ln( a ) ) = a
         if ( links[ 0 ] is UnaryNode unexp && unexp.Value == Operator.LN )
         {
