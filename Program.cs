@@ -1,8 +1,18 @@
 ﻿global using static SymboMath.Statics;
 using SymboMath;
 
-Node n1 = Node.ParseInfix( "3 * 4 * 5 * ( x + y )" );
-Node n2 = Node.ParseInfix( "3 * ( x + y ) * 4 * 5" );
+SimplificationRules sr = new()
+{
+    DistributeNegative = true,
+    DistributeDivision = true,
+    DistributeAddition = true,
+    PreferRepeatMult = false,
+    Prefer = Preference.Addition,
+    Exp = Mode.Condense,
+    Ln = Mode.Condense,
+};
+
+Node n1 = Node.ParseInfix( "( a * b ) + ( a * - b )" );
+Node n2 = n1.Simplify( sr );
 Console.WriteLine( n1.ToString() );
 Console.WriteLine( n2.ToString() );
-Console.WriteLine( n1 == n2 );

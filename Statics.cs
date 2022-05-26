@@ -215,7 +215,7 @@ public static class Statics
                     Output.Enqueue( Ops.Pop() );
                 }
                 Ops.Pop();
-                if ( IsUnaryOperator( Ops.Peek(), out _ ) )
+                if ( Ops.Any() && IsUnaryOperator( Ops.Peek(), out _ ) )
                     Output.Enqueue( Ops.Pop() );
             }
             else if ( InfN.Any() )
