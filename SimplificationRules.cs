@@ -1,6 +1,6 @@
 namespace SymboMath;
 public enum Preference { Addition, Multiplication }
-public enum Mode { Condense, Expand }
+public enum Mode { Condense = 0, Expand = 1, Factor = 0, Distribute = 1 }
 public struct SimplificationRules
 {
     public bool DistributeNegative;

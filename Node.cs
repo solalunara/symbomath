@@ -484,6 +484,28 @@ public class ADDNode : PlenaryNode
                     links.RemoveAt( i-- );
             } catch { } //not a number, guarenteed nonzero
         }
+        // a + - a = 0
+        for ( int i = 0; i < LinkCount - 1; ++i )
+        {
+            bool DontIncrementI = false;
+            for ( int j = i + 1; j < LinkCount; ++j )
+            {
+                if ( links[ j ] is SBTNode snj && snj[ 0 ] == links[ i ] )
+                {
+                    links.RemoveAt( j-- );
+                    links.RemoveAt( i );
+                    DontIncrementI = true;
+                }
+                else if ( links[ i ] is SBTNode sni && sni[ 0 ] == links[ j ] )
+                {
+                    links.RemoveAt( j-- );
+                    links.RemoveAt( i );
+                    DontIncrementI = true;
+                }
+            }
+            if ( DontIncrementI )
+                --i;
+        }
         if ( !links.Any() )
             return new Node<int>( 0 );
 
