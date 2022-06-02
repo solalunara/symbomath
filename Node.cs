@@ -249,8 +249,9 @@ public class SBTNode : UnaryNode
     {
     }
     public override Node Simplify( SimplificationRules sr )
-    {
-        sr.DistributeDivision = !sr.DistributeNegative; //prevent recursive loop
+    { 
+        //prevent recursive loop
+        sr.Division = sr.Negative == (FunctionMode)1 ? 0 : (FunctionMode)1;
         return base.Simplify( sr );
     }
     protected override Node SimplifyOpNode( SimplificationRules sr )
@@ -260,7 +261,7 @@ public class SBTNode : UnaryNode
             return sbtlink[ 0 ].Simplify( sr );
 
         // -( a + b ) = - a + - b
-        if ( sr.DistributeNegative )
+        if ( sr.Negative.HasFlag( FunctionMode.Distribute ) )
         {
             if ( links[ 0 ] is PlenaryNode )
             {
