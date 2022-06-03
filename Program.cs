@@ -12,7 +12,7 @@ SimplificationRules sr = new()
     Ln = Mode.Condense,
 };
 
-Node n1 = Node.ParseInfix( "( a * b ) + ( a * - b )" );
+Node n1 = Node.ParseInfix( "a * / b * / ( c * / d )" );
 Node n2 = n1.Simplify( sr );
 Console.WriteLine( n1.ToString() );
 Console.WriteLine( n2.ToString() );

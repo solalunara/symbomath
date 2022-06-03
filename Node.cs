@@ -87,8 +87,14 @@ public class Node<T> : Node
     public override bool Equals( object? obj ) => obj is Node n && ToString() == n.ToString();
     public override string? ToString() => ( Value ?? throw new ArgumentNullException( "Value of node is null" ) ).ToString();
     public override Node Simplify( SimplificationRules sr ) => this;
-    public override bool IsZero() => GetFloatValue() == 0.0f;
-    public override bool IsOne() => GetFloatValue() == 1.0f;
+    public override bool IsZero() 
+    {
+        try { return GetFloatValue() == 0.0f; } catch { return false; }
+    }
+    public override bool IsOne() 
+    {
+        try { return GetFloatValue() == 1.0f; } catch { return false; }
+    }
     public override float GetFloatValue() => Value.ToSingle( CultureInfo.CurrentCulture );
     public override int CompareTo( Node? o )
     {
@@ -251,17 +257,22 @@ public class SBTNode : UnaryNode
     public override Node Simplify( SimplificationRules sr )
     { 
         //prevent recursive loop
-        sr.Division = sr.Negative == (FunctionMode)1 ? 0 : (FunctionMode)1;
+        sr.DistributeDivision = !sr.DistributeNegative;
+
         return base.Simplify( sr );
     }
     protected override Node SimplifyOpNode( SimplificationRules sr )
     {
+        //if neg zero just return zero
+        if ( links[ 0 ].IsZero() )
+            return links[ 0 ];
+
         // - - a = a
         if ( links[ 0 ] is SBTNode sbtlink )
             return sbtlink[ 0 ].Simplify( sr );
 
         // -( a + b ) = - a + - b
-        if ( sr.Negative.HasFlag( FunctionMode.Distribute ) )
+        if ( sr.DistributeNegative )
         {
             if ( links[ 0 ] is PlenaryNode )
             {
@@ -272,13 +283,10 @@ public class SBTNode : UnaryNode
                     for ( int i = 0; i < pn.LinkCount; ++i ) pn[ i ] = new SBTNode( pn[ i ] );
                 return pn.Simplify( sr );
             }
-            // -/a = /-a
-            // WARNING: If both DistributeDivision and DistributeNegative are set
-            //          this will result in infinite recursion
-            //          handle this? nah it's fine tm
-            if ( links[ 0 ] is DIVNode dn )
-                return new DIVNode( new SBTNode( dn[ 0 ] ) );
         }
+        // -/a = /-a if factoring division OR if distributing negative
+        if ( ( sr.DistributeNegative || sr.FactorDivision ) && links[ 0 ] is DIVNode dn )
+            return new DIVNode( new SBTNode( dn[ 0 ] ) ).Simplify( sr );
 
         return this.Copy();
     }
@@ -291,7 +299,9 @@ public class DIVNode : UnaryNode
     }
     public override Node Simplify( SimplificationRules sr )
     {
-        sr.DistributeNegative = !sr.DistributeDivision; //prevent recursive loop
+        //prevent recursive loop
+        sr.DistributeNegative = !sr.DistributeDivision;
+
         sr.DistributeAddition = false;
         sr.Prefer = Preference.Multiplication;
         sr.Exp = Mode.Condense;
@@ -322,13 +332,11 @@ public class DIVNode : UnaryNode
                     links[ i ] = new DIVNode( mn[ i ] );
                 return new MULTNode( links ).Simplify( sr );
             }
-            // /-a = -/a
-            // WARNING: If both DistributeDivision and DistributeNegative are set
-            //          this will result in infinite recursion
-            //          handle this? nah it's fine tm
-            if ( links[ 0 ] is SBTNode sn )
-                return new SBTNode( new DIVNode( sn[ 0 ] ) );
         }
+
+        // /-a = -/a if distributedivision or factornegative
+        if ( ( sr.DistributeDivision || sr.FactorNegative ) && links[ 0 ] is SBTNode sn )
+            return new SBTNode( new DIVNode( sn[ 0 ] ) ).Simplify( sr );
 
         return this.Copy();
     }
@@ -344,7 +352,6 @@ public class EXPNode : UnaryNode
         sr.DistributeNegative = true;
         sr.DistributeDivision = true;
         sr.DistributeAddition = true;
-        sr.PreferRepeatMult = false;
         sr.Prefer = Preference.Addition;
         sr.Exp = Mode.Condense;
         sr.Ln = Mode.Condense;
@@ -479,28 +486,30 @@ public class ADDNode : PlenaryNode
     {
         for ( int i = 0; i < links.Count; ++i )
         {
-            try
-            {
-                if ( links[ i ].IsZero() )
-                    links.RemoveAt( i-- );
-            } catch { } //not a number, guarenteed nonzero
+            if ( links[ i ].IsZero() )
+                links.RemoveAt( i-- );
         }
+
         // a + - a = 0
         for ( int i = 0; i < LinkCount - 1; ++i )
         {
             bool DontIncrementI = false;
-            for ( int j = i + 1; j < LinkCount; ++j )
+            for ( int j = 0; j < LinkCount; ++j )
             {
+                if ( i == j ) continue;
+
                 if ( links[ j ] is SBTNode snj && snj[ 0 ] == links[ i ] )
                 {
-                    links.RemoveAt( j-- );
-                    links.RemoveAt( i );
-                    DontIncrementI = true;
-                }
-                else if ( links[ i ] is SBTNode sni && sni[ 0 ] == links[ j ] )
-                {
-                    links.RemoveAt( j-- );
-                    links.RemoveAt( i );
+                    if ( j > i )
+                    {
+                        links.RemoveAt( j-- );
+                        links.RemoveAt( i );
+                    }
+                    else
+                    {
+                        links.RemoveAt( i );
+                        links.RemoveAt( j-- );
+                    }
                     DontIncrementI = true;
                 }
             }
@@ -538,7 +547,7 @@ public class MULTNode : PlenaryNode
     }
     public override Node Simplify( SimplificationRules sr )
     {
-        sr.DistributeNegative = true;
+        sr.DistributeNegative = false;
         sr.DistributeDivision = true;
         sr.DistributeAddition = false;
         sr.Prefer = Preference.Multiplication;
@@ -557,31 +566,121 @@ public class MULTNode : PlenaryNode
                     return new Node<int>( 0 );
             } catch { } //not a number, no need to test for 0/1
         }
+
+        // - a * - b = a * b, even if we're not factoring negatives
+        for ( int i = 0; i < links.Count; ++i )
+        {
+            for ( int j = 0; j < links.Count; ++j )
+            {
+                if ( i == j ) continue;
+
+                if ( links[ i ] is SBTNode sn1 && links[ j ] is SBTNode sn2 )
+                {
+                    links[ i ] = sn1[ 0 ];
+                    links[ j ] = sn2[ 0 ];
+                }
+            }
+        }
+
+        // a * - b = -( a * b )
+        if ( sr.FactorNegative )
+        {
+            for ( int i = 0; i < links.Count; ++i )
+            {
+                if ( links[ i ] is SBTNode sn )
+                {
+                    links[ i ] = sn[ 0 ];
+                    return new SBTNode( this ).Simplify( sr );
+                }
+            }
+        }
+
+        // / a * / b = / ( a * b )
+        if ( sr.FactorDivision )
+        {
+            if ( links.Where( n => n is not DIVNode ).Any() )
+                return new DIVNode( this ).Simplify( sr );
+
+            MULTNode n = (MULTNode)this.Copy();
+            for ( int i = 0; i < links.Count; ++i )
+                if ( n.links[ i ] is DIVNode ) n.links.RemoveAt( i-- );
+
+            DIVNode dn = new DIVNode( new MULTNode( links.Where( n => n is DIVNode ).ToArray() ) );
+            MULTNode mn = new MULTNode( n.links.ToArray() );
+            mn.links.Add( dn );
+            if ( dn.LinkCount > 0 )
+                return mn.Simplify( sr );
+        }
+
         // a * / a = 1
         for ( int i = 0; i < LinkCount - 1; ++i )
         {
             bool DontIncrementI = false;
-            for ( int j = i + 1; j < LinkCount; ++j )
+            for ( int j = 0; j < LinkCount; ++j )
             {
+                if ( i == j ) continue;
+
                 if ( links[ j ] is DIVNode dnj && dnj[ 0 ] == links[ i ] )
                 {
-                    links.RemoveAt( j-- );
-                    links.RemoveAt( i );
-                    DontIncrementI = true;
-                }
-                else if ( links[ i ] is DIVNode dni && dni[ 0 ] == links[ j ] )
-                {
-                    links.RemoveAt( j-- );
-                    links.RemoveAt( i );
+                    if ( j > i )
+                    {
+                        links.RemoveAt( j-- );
+                        links.RemoveAt( i );
+                    }
+                    else
+                    {
+                        links.RemoveAt( i );
+                        links.RemoveAt( j-- );
+                    }
                     DontIncrementI = true;
                 }
             }
             if ( DontIncrementI )
                 --i;
         }
+
+        for ( int i = 0; i < LinkCount - 1; ++i )
+        {
+            bool DontIncrementI = false;
+            for ( int j = 0; j < LinkCount; ++j )
+            {
+                if ( i == j ) continue;
+
+                if ( links[ j ] is EXPNode enj && links[ i ] is EXPNode eni )
+                {
+                    //exp( a ) * exp( a ) -> exp( 2 * a )
+                    if ( enj[ 0 ] == eni[ 0 ] )
+                    {
+                        links[ j ] = new EXPNode( new MULTNode( new Node<int>( 2 ), enj[ j ] ) );
+                        links.RemoveAt( i-- );
+                    }
+
+                    //exp( n * a ) * exp( a ) -> exp( ( n + 1 ) * a )
+                    if ( enj)
+
+                    if ( j > i )
+                    {
+                        links.RemoveAt( j-- );
+                        links.RemoveAt( i );
+                    }
+                    else
+                    {
+                        links.RemoveAt( i );
+                        links.RemoveAt( j-- );
+                    }
+                    DontIncrementI = true;
+                }
+            }
+            if ( DontIncrementI )
+                --i;
+        }
+
+        
         if ( !links.Any() )
             return new Node<int>( 1 );
-        
+        if ( links.Count == 1 )
+            return this[ 0 ];
+
         return this.Copy();
     }
 }
