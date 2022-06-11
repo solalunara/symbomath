@@ -2,6 +2,12 @@ namespace SymboMath;
 using System.Text.RegularExpressions;
 public static class Statics
 {
+    public static Node Exp( Node n ) => new EXPNode( n ).Simplify( new() );
+    public static Node Ln( Node n ) => new LNNode( n ).Simplify( new() );
+
+    public static Node<int> n( this int i ) => new Node<int>( i );
+    public static Node<float> n( this float i ) => new Node<float>( i );
+
     public static Operator GetOperator( string s )
     {
         return s switch

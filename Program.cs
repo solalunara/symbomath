@@ -6,13 +6,15 @@ SimplificationRules sr = new()
     DistributeNegative = true,
     DistributeDivision = true,
     DistributeAddition = true,
-    PreferRepeatMult = false,
     Prefer = Preference.Addition,
-    Exp = Mode.Condense,
-    Ln = Mode.Condense,
+    Exp = Mode.Expand,
+    Ln = Mode.Expand,
 };
 
-Node n1 = Node.ParseInfix( "a * / b * / ( c * / d )" );
-Node n2 = n1.Simplify( sr );
-Console.WriteLine( n1.ToString() );
-Console.WriteLine( n2.ToString() );
+string? s = "";
+while ( ( s = Console.ReadLine() ) != null && s.Length > 0 )
+{
+    Node n1 = Node.ParseInfix( s );
+    Node n2 = n1.Simplify( sr );
+    Console.WriteLine( n2.ToString() );
+}

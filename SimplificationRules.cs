@@ -9,8 +9,6 @@ public struct SimplificationRules
     public bool FactorDivision { get => !DistributeDivision; }
     public bool DistributeAddition;
     public bool FactorAddition { get => !DistributeAddition; }
-    public bool PreferRepeatMult;
-    public bool PreferExpToMult { get => !PreferRepeatMult; }
     public Preference Prefer;
     public Mode Exp;
     public Mode Ln;
